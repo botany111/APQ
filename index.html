@@ -2,91 +2,94 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>S/D 狀態導航器</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leonardo 多功能燒錄器</title>
+    <script src="https://unpkg.com/avrgirl-arduino/dist/avrgirl-arduino.global.js"></script>
     <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f4f4f9; }
-        .container { text-align: center; background: white; padding: 2rem; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        h1 { color: #333; margin-bottom: 0.5rem; }
-        .current-node { font-size: 4rem; font-weight: bold; color: #2c3e50; margin: 20px 0; }
-        .buttons { display: flex; gap: 20px; justify-content: center; }
-        button { padding: 15px 40px; font-size: 1.5rem; cursor: pointer; border: none; border-radius: 8px; transition: transform 0.1s; }
-        .btn-s { background-color: #4CAF50; color: white; }
-        .btn-d { background-color: #f44336; color: white; }
-        button:active { transform: scale(0.95); }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
-        .reset-btn { margin-top: 30px; background: none; border: 1px solid #999; color: #666; padding: 5px 15px; font-size: 1rem; cursor: pointer; }
+        body { font-family: 'Segoe UI', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; background-color: #f0f2f5; margin: 0; }
+        .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 8px 30px rgba(0,0,0,0.1); text-align: center; max-width: 400px; width: 90%; }
+        h1 { color: #00878F; font-size: 1.5rem; }
+        p { color: #555; margin-bottom: 2rem; }
+        
+        .btn-group { display: flex; flex-direction: column; gap: 12px; }
+        
+        .burn-btn { 
+            background-color: #ffffff; color: #00878F; border: 2px solid #00878F; 
+            padding: 15px; font-size: 1rem; border-radius: 10px; cursor: pointer; 
+            transition: 0.3s; font-weight: bold; text-align: left; display: flex; align-items: center; justify-content:建设;
+        }
+        
+        .burn-btn:hover { background-color: #e6f3f4; }
+        .burn-btn:active { transform: scale(0.98); }
+        .burn-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        /* 正在燒錄時的樣式 */
+        .burn-btn.loading { background-color: #00878F; color: white; }
+
+        #status { margin-top: 20px; font-size: 0.9rem; font-weight: bold; min-height: 1.2rem; }
+        .success { color: #2e7d32; }
+        .error { color: #c62828; }
+        .processing { color: #00878F; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h1>當前數值</h1>
-    <div class="current-node" id="display">500</div>
-    
-    <div class="buttons">
-        <button class="btn-s" onclick="move('s')" id="s-btn">S</button>
-        <button class="btn-d" onclick="move('d')" id="d-btn">D</button>
+<div class="card">
+    <h1>Leonardo 專案管理</h1>
+    <p>請選擇欲寫入的功能模式：</p>
+
+    <div class="btn-group">
+        <button class="burn-btn" onclick="startBurn('mode1.hex', this)">
+            🚀 模式一：基礎功能控制
+        </button>
+        
+        <button class="burn-btn" onclick="startBurn('mode2.hex', this)">
+            🎮 模式二：進階遊戲搖桿
+        </button>
+
+        <button class="burn-btn" onclick="startBurn('mode3.hex', this)">
+            ⌨️ 模式三：自定義快捷鍵
+        </button>
     </div>
 
-    <button class="reset-btn" onclick="reset()">重新開始 (Back to 500)</button>
-    <p id="message" style="color: #666; margin-top: 20px;"></p>
+    <div id="status">等待選擇功能...</div>
 </div>
 
 <script>
-    // 定義圖形結構
-    const tree = {
-        "500": { s: "410", d: "311" },
-        "410": { s: "320", d: "302" },
-        "311": { s: "221", d: "122" },
-        "320": { s: "230", d: "401" },
-        "302": { s: "203" },
-        "221": { s: "131", d: "113" },
-        "122": { s: "032" },
-        "230": { s: "140" },
-        "203": { s: "104" },
-        "131": { s: "041", d: "212" },
-        "113": { s: "014" },
-        "032": { s: "023" },
-        "140": { s: "050" },
-        "104": { s: "005" },
-        // 葉子節點
-        "401": {}, "050": {}, "005": {}, "041": {}, "212": {}, "014": {}, "023": {}
-    };
+    const statusDiv = document.getElementById('status');
+    const allButtons = document.querySelectorAll('.burn-btn');
 
-    let currentNode = "500";
-
-    function updateUI() {
-        document.getElementById('display').innerText = currentNode;
-        const options = tree[currentNode];
+    function startBurn(fileName, btnElement) {
+        // 1. 禁用所有按鈕防止重複點擊
+        allButtons.forEach(btn => btn.disabled = true);
+        btnElement.classList.add('loading');
         
-        const sBtn = document.getElementById('s-btn');
-        const dBtn = document.getElementById('d-btn');
-        const msg = document.getElementById('message');
+        statusDiv.innerText = "⏳ 正在初始化燒錄器...";
+        statusDiv.className = "processing";
 
-        sBtn.disabled = !options.s;
-        dBtn.disabled = !options.d;
+        // 2. 設定燒錄引擎
+        const avrgirl = new AvrgirlArduino({
+            board: 'leonardo',
+            debug: true
+        });
 
-        if (!options.s && !options.d) {
-            msg.innerText = "已到達終點。";
-        } else {
-            msg.innerText = "";
-        }
+        // 3. 開始燒錄預設路徑的檔案
+        avrgirl.flash(fileName, (err) => {
+            // 恢復按鈕狀態
+            allButtons.forEach(btn => btn.disabled = false);
+            btnElement.classList.remove('loading');
+
+            if (err) {
+                console.error(err);
+                statusDiv.innerText = "❌ 燒錄失敗：" + err.message;
+                statusDiv.className = "error";
+            } else {
+                statusDiv.innerText = "✅ " + fileName + " 燒錄成功！";
+                statusDiv.className = "success";
+                alert("燒錄完成！您的 Leonardo 已更新。");
+            }
+        });
     }
-
-    function move(direction) {
-        const next = tree[currentNode][direction];
-        if (next) {
-            currentNode = next;
-            updateUI();
-        }
-    }
-
-    function reset() {
-        currentNode = "500";
-        updateUI();
-    }
-
-    updateUI(); // 初始化
 </script>
 
 </body>
